@@ -32,7 +32,7 @@ in your browser.
 
 import numpy as np
 from bokeh.io import curdoc
-from bokeh.layouts import column, row
+from bokeh.layouts import column, row, layout
 from bokeh.models import ColumnDataSource, DatetimeTickFormatter, TextInput, Select, RadioButtonGroup, Paragraph
 from bokeh.plotting import figure
 
@@ -72,6 +72,11 @@ def get_month_data(ds,month,year):
 
     return month_closings
 
+def get_ticker_corr_by_mo(ds1,ds2):
+    dsj = pd.concat([ds1.rename('cp1'),ds2.rename('cp2')],axis=1,join='inner')
+    corrtickers = dsj.groupby(pd.Grouper(freq='M')).apply(lambda x: np.corrcoef(x.cp1, x.cp2)[0][1])
+    return corrtickers
+
 # initial data from most recent year and month
 init_tickers = ['AMZN','GOOG']
 ds,year_opts = get_tickerData(init_tickers[0])
@@ -97,6 +102,16 @@ fig.xaxis[0].formatter = DatetimeTickFormatter(days="%m/%d")
 fig.legend.items[1].visible = False
 fig.select(name="ticker2").visible = False
 
+#fig2
+corrtickers = get_ticker_corr_by_mo(ds,ds2)
+sourcecorr = ColumnDataSource(data=dict(x=corrtickers.index, y=corrtickers.values))
+
+figcor = figure(plot_width=1000, plot_height=600,
+        x_axis_type = 'datetime',
+        x_axis_label = 'Date',
+        y_axis_label = 'correlation')
+figcor.line('x', 'y', source=sourcecorr,line_color='green',name='tickercorr')
+figcor.visible = False
 
 #WIDGETS
 text_input = TextInput(value=init_tickers[0], title="Enter stock ticker symbol:")
@@ -131,7 +146,9 @@ def update_fig_ticker(attrname, old, new_ticker):
                     month_menu.value = month_opts[0]
 
                 month_closings = get_month_data(ds,month_menu.value,year_menu.value)
-                #do this with the rest:
+                corrtickers = get_ticker_corr_by_mo(ds,ds2)
+                sourcecorr.data = dict(x=corrtickers.index, y=corrtickers.values)
+
                 try:
                     month_closings2 = get_month_data(ds2,month_menu.value,year_menu.value)
                     source.data = dict(x=month_closings.index, y1=month_closings.values,y2=month_closings2.values)
@@ -146,6 +163,9 @@ def update_fig_ticker(attrname, old, new_ticker):
             try:
                 ds2 = get_tickerData(new_ticker)[0]
                 radio_button_group.labels[radio_active] = f'{radio_active+1}: {new_ticker}'
+
+                corrtickers = get_ticker_corr_by_mo(ds,ds2)
+                sourcecorr.data = dict(x=corrtickers.index, y=corrtickers.values)
 
                 try:
                     month_closings = get_month_data(ds2,month_menu.value,year_menu.value)
@@ -195,12 +215,14 @@ def radio_change(new):
         year_menu.visible = True
         month_menu.visible = True
         pgraph.text = ''
+        figcor.visible = False
 
     elif new==1:
         fig.legend.items[new].visible = True
         fig.select(name="ticker2").visible = True
         year_menu.visible = False
         month_menu.visible = False
+        figcor.visible = True
 
         if len(source.data)>2:
             corcalc = np.corrcoef(source.data['y1'],source.data['y2'])
@@ -216,6 +238,10 @@ radio_button_group.on_click(radio_change)
 
 # Set up layouts and add to document
 inputs = column(radio_button_group,text_input,year_menu,month_menu,pgraph)
-
-curdoc().add_root(row(inputs, fig, width=800))
+# figs = column(fig,figcor)
+# curdoc().add_root(row(inputs, figs, width=800))
+curdoc().add_root(layout([
+    [inputs,fig],
+    [figcor]
+]))
 curdoc().title = "TICKER"
